@@ -8,7 +8,7 @@ from llama import ModelArgs, Tokenizer, Transformer
 def Llama7B_adapter(args, **kwargs):
 
     llama_model_path = args.llama_model_path
-    model_name = "7B"
+    model_name = ""
 
     checkpoint = torch.load(llama_model_path + model_name + "/consolidated.00.pth", map_location="cpu")
     print(llama_model_path + model_name + "/consolidated.00.pth")

@@ -49,7 +49,6 @@ def load(
     world_size: int,
     max_seq_len: int,
     max_batch_size: int,
-    quantizer: bool=False,
 ) -> LLaMA:
     start_time = time.time()
     checkpoints = sorted(Path(ckpt_dir).glob("*.pth"))
@@ -63,7 +62,7 @@ def load(
     with open(Path(ckpt_dir) / "params.json", "r") as f:
         params = json.loads(f.read())
 
-    model_args: ModelArgs = ModelArgs(max_seq_len=max_seq_len, max_batch_size=max_batch_size, quantizer=quantizer, **params)
+    model_args: ModelArgs = ModelArgs(max_seq_len=max_seq_len, max_batch_size=max_batch_size, **params)
     model_args.adapter_layer = int(adapter_checkpoint["adapter_query.weight"].shape[0] / model_args.adapter_len)
     tokenizer = Tokenizer(model_path=tokenizer_path)
     model_args.vocab_size = tokenizer.n_words
@@ -84,29 +83,21 @@ def main(
     adapter_path: str,
     temperature: float = 0.1,
     top_p: float = 0.75,
-    max_seq_len: int = 512,
-    max_batch_size: int = 32,
-    quantizer: bool = False,
+    max_seq_len: int = 800,
+    max_batch_size: int = 2,
 ):
     local_rank, world_size = setup_model_parallel()
     if local_rank > 0:
         sys.stdout = open(os.devnull, "w")
 
-    generator = load(ckpt_dir, tokenizer_path, adapter_path, local_rank, world_size, max_seq_len, max_batch_size, quantizer)
-    instructs = [
-        "Tell me about alpacas.",
-        "Tell me about the president of Mexico in 2019.",
-        "Tell me about the king of France in 2019.",
-        "List all Canadian provinces in alphabetical order.",
-        "Write a Python program that prints the first 10 Fibonacci numbers.",
-        "Write a program that prints the numbers from 1 to 100. But for multiples of three print 'Fizz' instead of the number and for the multiples of five print 'Buzz'. For numbers which are multiples of both three and five print 'FizzBuzz'.",  # noqa: E501
-        "Tell me five words that rhyme with 'shock'.",
-        "Translate the sentence 'I have no mouth but I must scream' into Spanish.",
-        "Count up from 1 to 500.",
+    generator = load(ckpt_dir, tokenizer_path, adapter_path, local_rank, world_size, max_seq_len, max_batch_size)
+    inputs = [
+        """mixture of N-aminopyrrole (1.77 g, 20.56 mmol) and 2-ethoxycarbonyl-malonic acid diethyl ester (14.4 g, 61.68 mmol) was subjected microwave heating at 170\u00b0 C. for 30 min; then cooled, the reaction mixture was directly purified with silica gel column to give the desired product (372 mg) as brown solid. ESI (m/z): 223 (M+H)+.""",
+        """The product from Example 2f (145 mg, 0.76 mmol) was reacted with POCl3 4 mL following the procedure from Example 1d giving the title compound as a solid (135 mg, 86%).""",
     ]
-    prompts = [PROMPT_DICT["prompt_no_input"].format_map({"instruction": x, "input": ""}) for x in instructs]
+    prompts = [PROMPT_DICT["prompt_input"].format_map({"instruction": "Extract a JSON of reaction inputs using ORD data schema", "input": x}) for x in inputs]
 
-    results = generator.generate(prompts, max_gen_len=512, temperature=temperature, top_p=top_p)
+    results = generator.generate(prompts, max_gen_len=max_seq_len, temperature=temperature, top_p=top_p)
 
     for result in results:
         print(result)
