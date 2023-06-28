@@ -12,4 +12,4 @@ print(model["model"]["adapter_query.weight"].shape)
 for i in range(len(weight_list)):
     new_model[weight_list[i]] = model["model"][weight_list[i]]
 
-torch.save(new_model, "adapter_d500_e50.pth")
+torch.save(new_model, "adapter.pth")

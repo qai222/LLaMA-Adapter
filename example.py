@@ -25,6 +25,9 @@ PROMPT_DICT = {
         "Write a response that appropriately completes the request.\n\n"
         "### Instruction:\n{instruction}\n\n### Response:"
     ),
+    "prompt_ord": (
+        "### Procedure:\n{instruction}\n\n### ORD-JSON:"
+    ),
 }
 
 
@@ -83,25 +86,31 @@ def main(
     adapter_path: str,
     temperature: float = 0.1,
     top_p: float = 0.75,
-    max_seq_len: int = 800,
-    max_batch_size: int = 2,
+    max_seq_len: int = 900,
+    max_batch_size: int = 1,
 ):
     local_rank, world_size = setup_model_parallel()
     if local_rank > 0:
         sys.stdout = open(os.devnull, "w")
 
+
     generator = load(ckpt_dir, tokenizer_path, adapter_path, local_rank, world_size, max_seq_len, max_batch_size)
-    inputs = [
-        """mixture of N-aminopyrrole (1.77 g, 20.56 mmol) and 2-ethoxycarbonyl-malonic acid diethyl ester (14.4 g, 61.68 mmol) was subjected microwave heating at 170\u00b0 C. for 30 min; then cooled, the reaction mixture was directly purified with silica gel column to give the desired product (372 mg) as brown solid. ESI (m/z): 223 (M+H)+.""",
-        """The product from Example 2f (145 mg, 0.76 mmol) was reacted with POCl3 4 mL following the procedure from Example 1d giving the title compound as a solid (135 mg, 86%).""",
-    ]
-    prompts = [PROMPT_DICT["prompt_input"].format_map({"instruction": "Extract a JSON of reaction inputs using ORD data schema", "input": x}) for x in inputs]
 
-    results = generator.generate(prompts, max_gen_len=max_seq_len, temperature=temperature, top_p=top_p)
 
-    for result in results:
-        print(result)
-        print("\n==================================\n")
+    import json
+    from tqdm import tqdm
+    with open("alpaca_finetuning_v1/data/ins_mt900_test.json", "r") as f:
+        test_data = json.load(f)
+
+    for r in tqdm(test_data):
+        ins = r['instruction']
+        prompt = PROMPT_DICT['prompt_ord'].format_map({"instruction": ins})
+        response = generator.generate([prompt,], max_gen_len=max_seq_len, temperature=temperature, top_p=top_p)[0]
+        print(response)
+        r['response'] = response
+
+    with open("infer.json", "w") as f:
+        json.dump(test_data, f)
 
 
 if __name__ == "__main__":
