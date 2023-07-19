@@ -11,6 +11,7 @@ parser.add_argument("--chk_dir", default="./checkpoint", type=str, help="checkpo
 def extract_all(checkpoint_dir):
     for chk in sorted(glob.glob(f"{checkpoint_dir}/checkpoint-*.pth")):
         n = os.path.basename(chk).strip("checkpoint-").strip(".pth")
+        print("working on:", chk)
         model = torch.load(chk, map_location="cpu")
         new_model = dict()
         weight_list = ["layers." + str(i) + ".attention.gate" for i in range(32)]
@@ -23,4 +24,4 @@ def extract_all(checkpoint_dir):
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    extract_all(args['chk_dir'])
+    extract_all(args.chk_dir)

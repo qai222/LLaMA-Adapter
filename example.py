@@ -7,8 +7,10 @@ import sys
 import time
 from pathlib import Path
 from typing import Tuple
-
 import fire
+
+import json
+from tqdm import tqdm
 import torch
 from fairscale.nn.model_parallel.initialize import initialize_model_parallel
 
@@ -26,7 +28,7 @@ PROMPT_DICT = {
         "### Instruction:\n{instruction}\n\n### Response:"
     ),
     "prompt_ord": (
-        "### Procedure:\n{instruction}\n\n### ORD-JSON:"
+        "### Procedure:\n{instruction}\n\n### ORD-JSON:\n"
     ),
 }
 
@@ -96,18 +98,21 @@ def main(
 
     generator = load(ckpt_dir, tokenizer_path, adapter_path, local_rank, world_size, max_seq_len, max_batch_size)
 
-
-    import json
-    from tqdm import tqdm
-    with open("alpaca_finetuning_v1/data/ins_mt900_test.json", "r") as f:
-        test_data = json.load(f)
+    with open(
+            "alpaca_finetuning_v1/finetune_20230716/OrdAlpaca_MaxToken900_TrainSize10000_TestSize2000_inputs-conditions-outcomes-workups.json",
+            "r"
+    ) as f:
+        test_data = json.load(f)["test_data"]
 
     for r in tqdm(test_data):
         ins = r['instruction']
         prompt = PROMPT_DICT['prompt_ord'].format_map({"instruction": ins})
         response = generator.generate([prompt,], max_gen_len=max_seq_len, temperature=temperature, top_p=top_p)[0]
         print(response)
+        print("### reference")
+        print(r['output'])
         r['response'] = response
+        print()
 
     with open("infer.json", "w") as f:
         json.dump(test_data, f)
