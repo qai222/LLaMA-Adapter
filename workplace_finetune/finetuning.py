@@ -17,6 +17,7 @@ import llama_finetune.util.misc as misc
 from llama_finetune import Tokenizer, models_llama_adapter
 from llama_finetune.engine_finetuning import train_one_epoch, val_one_epoch
 from llama_finetune.util.misc import NativeScalerWithGradNormCount as NativeScaler
+from llama_finetune.util.json_io import json_load
 
 PROMPT_DICT = {
     "prompt_input": (
@@ -161,8 +162,7 @@ def main(args):
 
     cudnn.benchmark = True
 
-    with open(args.data_path, "r") as f:
-        ord_alpaca_data = json.load(f)
+    ord_alpaca_data = json_load(args.data_path)
 
     datalist_train = ord_alpaca_data['train_data']
 
