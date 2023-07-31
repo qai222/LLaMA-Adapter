@@ -33,13 +33,17 @@ PROMPT_DICT = {
 }
 
 
-def setup_model_parallel() -> Tuple[int, int]:
+def setup_model_parallel(use_cpu=False) -> Tuple[int, int]:
     local_rank = int(os.environ.get("LOCAL_RANK", -1))
     world_size = int(os.environ.get("WORLD_SIZE", -1))
 
-    torch.distributed.init_process_group("gloo")
-    initialize_model_parallel(world_size)
-    # torch.cuda.set_device(local_rank)
+    if use_cpu:
+        torch.distributed.init_process_group("gloo")
+        initialize_model_parallel(world_size)
+    else:
+        torch.distributed.init_process_group("nccl")
+        initialize_model_parallel(world_size)
+        torch.cuda.set_device(local_rank)
 
     # seed must be the same in all processes
     torch.manual_seed(1)
@@ -54,6 +58,7 @@ def load(
         world_size: int,
         max_seq_len: int,
         max_batch_size: int,
+        use_cpu: False,
 ) -> LLaMA:
     start_time = time.time()
     checkpoints = sorted(Path(ckpt_dir).glob("*.pth"))
@@ -71,8 +76,12 @@ def load(
     model_args.adapter_layer = int(adapter_checkpoint["adapter_query.weight"].shape[0] / model_args.adapter_len)
     tokenizer = Tokenizer(model_path=tokenizer_path)
     model_args.vocab_size = tokenizer.n_words
-    torch.set_default_tensor_type(torch.FloatTensor)
-    torch.set_default_device('cpu')
+    if use_cpu:
+        torch.set_default_tensor_type(torch.FloatTensor)
+        torch.set_default_device('cpu')
+    else:
+        torch.set_default_tensor_type(torch.cuda.HalfTensor)
+
     model = Transformer(model_args)
     print(model)
     torch.set_default_tensor_type(torch.FloatTensor)
@@ -94,11 +103,11 @@ def main(
         max_batch_size: int = 1,
         use_cpu: bool = False,
 ):
-    local_rank, world_size = setup_model_parallel()
+    local_rank, world_size = setup_model_parallel(use_cpu=use_cpu)
     if local_rank > 0:
         sys.stdout = open(os.devnull, "w")
 
-    generator = load(ckpt_dir, tokenizer_path, adapter_path, local_rank, world_size, max_seq_len, max_batch_size)
+    generator = load(ckpt_dir, tokenizer_path, adapter_path, local_rank, world_size, max_seq_len, max_batch_size, use_cpu=use_cpu)
 
     test_data = json_load(data_json_path)['test_data']
 
