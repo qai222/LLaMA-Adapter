@@ -14,6 +14,7 @@ from fairscale.nn.model_parallel.initialize import initialize_model_parallel
 from tqdm import tqdm
 
 from llama_infer import LLaMA, ModelArgs, Tokenizer, Transformer
+from llama_finetune.util.json_io import json_load
 
 PROMPT_DICT = {
     "prompt_input": (
@@ -99,8 +100,7 @@ def main(
 
     generator = load(ckpt_dir, tokenizer_path, adapter_path, local_rank, world_size, max_seq_len, max_batch_size)
 
-    with open(data_json_path, "r") as f:
-        test_data = json.load(f)["test_data"]
+    test_data = json_load(data_json_path)['test_data']
 
     for r in tqdm(test_data):
         ins = r['instruction']
