@@ -1,7 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # This software may be used and distributed according to the terms of the GNU General Public License version 3.
 
-import json
 import os
 import sys
 import time
@@ -37,9 +36,9 @@ def setup_model_parallel() -> Tuple[int, int]:
     local_rank = int(os.environ.get("LOCAL_RANK", -1))
     world_size = int(os.environ.get("WORLD_SIZE", -1))
 
-    torch.distributed.init_process_group("nccl")
+    torch.distributed.init_process_group("gloo")
     initialize_model_parallel(world_size)
-    torch.cuda.set_device(local_rank)
+    # torch.cuda.set_device(local_rank)
 
     # seed must be the same in all processes
     torch.manual_seed(1)
@@ -71,7 +70,8 @@ def load(
     model_args.adapter_layer = int(adapter_checkpoint["adapter_query.weight"].shape[0] / model_args.adapter_len)
     tokenizer = Tokenizer(model_path=tokenizer_path)
     model_args.vocab_size = tokenizer.n_words
-    torch.set_default_tensor_type(torch.cuda.HalfTensor)
+    torch.set_default_tensor_type(torch.FloatTensor)
+    torch.set_default_device('cpu')
     model = Transformer(model_args)
     print(model)
     torch.set_default_tensor_type(torch.FloatTensor)
