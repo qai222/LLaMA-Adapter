@@ -86,7 +86,7 @@ def main(
     ckpt_dir: str,
     tokenizer_path: str,
     adapter_path: str,
-    temperature: float = 0.1,
+    temperature: float = 0.0,
     top_p: float = 0.75,
     max_seq_len: int = 900,
     max_batch_size: int = 1,
