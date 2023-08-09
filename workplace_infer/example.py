@@ -3,6 +3,7 @@
 
 import json
 import os
+import random
 import sys
 import time
 from pathlib import Path
@@ -110,6 +111,9 @@ def main(
     generator = load(ckpt_dir, tokenizer_path, adapter_path, local_rank, world_size, max_seq_len, max_batch_size, use_cpu=use_cpu)
 
     test_data = json_load(data_json_path)['test_data']
+
+    random.seed(42)
+    test_data = random.sample(test_data, 2000)
 
     for r in tqdm(test_data):
         ins = r['instruction']

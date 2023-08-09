@@ -1,10 +1,10 @@
 # note: in 'example.py' `llama` is imported from ./llama, not from ./alpaca_finetuning_v1/llama
-
+export PYTHONPATH="$PWD/../:$PYTHONPATH"
 TARGET_FOLDER=$PWD/../weights/7B
-ADAPTER_PATH=$PWD/../workplace_finetune/finetune_20230716/checkpoint/adapter-99.pth
+ADAPTER_PATH=$PWD/../workplace_finetune/finetune_20230731/checkpoint/adapter-14.pth
 
 DATA_FOLDER=$PWD/../data
-DATA_JSON_NAME="OrdAlpaca_MaxToken900_TrainSize10000_TestSize2000_inputs-conditions-outcomes-workups.json"
+DATA_JSON_NAME="OrdAlpaca_MaxToken900_TrainSize85739_TestSize21435_inputs-conditions-outcomes-workups.json.gz"
 DATA_JSON_PATH=$DATA_FOLDER/$DATA_JSON_NAME
 
 torchrun --nproc_per_node 1 example.py \
