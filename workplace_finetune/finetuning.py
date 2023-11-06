@@ -18,26 +18,11 @@ from llama_finetune import Tokenizer, models_llama_adapter
 from llama_finetune.engine_finetuning import train_one_epoch, val_one_epoch
 from llama_finetune.util.misc import NativeScalerWithGradNormCount as NativeScaler
 from llama_finetune.util.json_io import json_load
-
-PROMPT_DICT = {
-    "prompt_input": (
-        "Below is an instruction that describes a task, paired with an input that provides further context. "
-        "Write a response that appropriately completes the request.\n\n"
-        "### Instruction:\n{instruction}\n\n### Input:\n{input}\n\n### Response:"
-    ),
-    "prompt_no_input": (
-        "Below is an instruction that describes a task. "
-        "Write a response that appropriately completes the request.\n\n"
-        "### Instruction:\n{instruction}\n\n### Response:"
-    ),
-    "prompt_ord": (
-        "### Procedure:\n{instruction}\n\n### ORD-JSON:\n"
-    ),
-}
+from llama_finetune.util.tensor_type import promote_trainable_params_to_fp32, default_tensor_type
 
 
 class InstructionDataset(Dataset):
-    def __init__(self, data_list, model_path, max_words=30, partition="train", valid_size=200):
+    def __init__(self, data_list, model_path, prompt_template, max_words=30, partition="train", valid_size=200):
         self.ann = data_list
         if partition == "train":
             self.ann = self.ann[valid_size:]
@@ -47,6 +32,7 @@ class InstructionDataset(Dataset):
         self.max_words = max_words
         tokenizer = Tokenizer(model_path=model_path + "./tokenizer.model")
         self.tokenizer1 = tokenizer
+        self.prompt_template = prompt_template
 
     def __len__(self):
         return len(self.ann)
@@ -54,7 +40,7 @@ class InstructionDataset(Dataset):
     def __getitem__(self, index):
 
         ann = self.ann[index]
-        prompt = PROMPT_DICT["prompt_ord"].format_map(ann)
+        prompt = self.prompt_template.format_map(ann)
         example = prompt + ann["output"]
         prompt = torch.tensor(self.tokenizer1.encode(prompt, bos=True, eos=False), dtype=torch.int64)
         example = torch.tensor(self.tokenizer1.encode(example, bos=True, eos=True), dtype=torch.int64)
@@ -160,38 +146,42 @@ def main(args):
     torch.manual_seed(seed)
     np.random.seed(seed)
 
+    mixed_precision_dtype = {
+        "fp16": torch.float16,
+        "bf16": torch.bfloat16,
+        "tf32": torch.float32,
+    }[args.precision]
+
     cudnn.benchmark = True
 
-    ord_alpaca_data = json_load(args.data_path)
-
-    datalist_train = ord_alpaca_data['train_data']
+    dataset_path = args.data_path
+    datalist_train = json_load(os.path.join(dataset_path, "train.json"))
+    datalist_test = json_load(os.path.join(dataset_path, "test.json"))
+    dataset_params = json_load(os.path.join(dataset_path, "params.json"))
 
     dataset_train = InstructionDataset(
-        data_list=datalist_train, model_path=args.llama_model_path, max_words=args.max_seq_len,
-        partition="train", valid_size=int(len(datalist_train) * 0.1)
+        data_list=datalist_train, prompt_template=dataset_params["prompt_template"], model_path=args.llama_model_path, max_words=args.max_seq_len,
+        partition="train", valid_size=int(len(datalist_train) * 0.1 + len(datalist_test) * 0.1)
     )
     dataset_val = InstructionDataset(
-        data_list=datalist_train, model_path=args.llama_model_path, max_words=args.max_seq_len,
-        partition="val", valid_size=int(len(datalist_train) * 0.1)
+        data_list=datalist_train, prompt_template=dataset_params["prompt_template"], model_path=args.llama_model_path, max_words=args.max_seq_len,
+        partition="val", valid_size=int(len(datalist_train) * 0.1 + len(datalist_test) * 0.1)
     )
 
     print(dataset_train)
     print(dataset_val)
 
-    if True:  # args.distributed:
-        num_tasks = misc.get_world_size()
-        global_rank = misc.get_rank()
-        sampler_train = torch.utils.data.DistributedSampler(
-            dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
-        )
+    num_tasks = misc.get_world_size()
+    global_rank = misc.get_rank()
+    sampler_train = torch.utils.data.DistributedSampler(
+        dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
+    )
 
-        sampler_val = torch.utils.data.DistributedSampler(
-            dataset_val, num_replicas=num_tasks, rank=global_rank, shuffle=True
-        )
+    sampler_val = torch.utils.data.DistributedSampler(
+        dataset_val, num_replicas=num_tasks, rank=global_rank, shuffle=True
+    )
 
-        print("Sampler_train = %s" % str(sampler_train))
-    else:
-        sampler_train = torch.utils.data.RandomSampler(dataset_train)
+    print("Sampler_train = %s" % str(sampler_train))
 
     if global_rank == 0 and args.log_dir is not None:
         os.makedirs(args.log_dir, exist_ok=True)
