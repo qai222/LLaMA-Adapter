@@ -239,7 +239,7 @@ def init_distributed_mode(args):
     args.distributed = True
 
     torch.cuda.set_device(args.gpu)
-    args.dist_backend = 'gloo'
+    args.dist_backend = 'nccl'
     print('| distributed init (rank {}): {}, gpu {}'.format(
         args.rank, args.dist_url, args.gpu), flush=True)
     torch.distributed.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
@@ -338,3 +338,23 @@ def all_reduce_mean(x):
         return x_reduce.item()
     else:
         return x
+
+
+def print_param_status(model: torch.nn.Module) -> None:
+    require_grad_set = []
+    no_grad_set = []
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            require_grad_set.append((name, param))
+        else:
+            no_grad_set.append((name, param))
+
+    print("Params that require gradient:\n")
+    for name, param in require_grad_set:
+        is_model_parallel = getattr(param, "is_model_parallel", False)
+        print(f"Param {name}: requires_grad {param.requires_grad}, local_size {param.shape}, model_parallel {is_model_parallel}, dtype {param.dtype}")
+
+    print("\nParams that do not require gradient:\n")
+    for name, param in no_grad_set:
+        is_model_parallel = getattr(param, "is_model_parallel", False)
+        print(f"Param {name}: requires_grad {param.requires_grad}, local_size {param.shape}, model_parallel {is_model_parallel}, dtype {param.dtype}")
