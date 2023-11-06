@@ -10,13 +10,13 @@ TARGET_FOLDER=$PWD/../weights/Llama-7b
 
 mkdir -p $WORK_FOLDER
 
-torchrun --nproc_per_node 2 finetuning.py \
+NCCL_P2P_DISABLE=1 CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node 2 finetuning.py \
     --model Llama7B_adapter \
     --llama_model_path $TARGET_FOLDER/ \
     --data_path $DATA_PATH \
-    --adapter_layer 30 \
+    --adapter_layer 20 \
     --adapter_len 10 \
-    --max_seq_len 900 \
+    --max_seq_len 1200 \
     --batch_size 1 \
     --epochs 15 \
     --warmup_epochs 2 \
