@@ -5,7 +5,7 @@ import json
 import os
 import time
 from pathlib import Path
-
+import functools
 import numpy as np
 import timm.optim.optim_factory as optim_factory
 import torch
@@ -139,7 +139,7 @@ def main(args):
     print("job dir: {}".format(os.path.dirname(os.path.realpath(__file__))))
     print("{}".format(args).replace(", ", ",\n"))
 
-    device = torch.device(args.device)
+    device = torch.device('cuda')
 
     # fix the seed for reproducibility
     seed = args.seed + misc.get_rank()
@@ -150,7 +150,7 @@ def main(args):
         "fp16": torch.float16,
         "bf16": torch.bfloat16,
         "tf32": torch.float32,
-    }[args.precision]
+    }["fp16"]
 
     cudnn.benchmark = True
 
@@ -208,9 +208,12 @@ def main(args):
     )
 
     # define the model
-    model = models_llama_adapter.__dict__[args.model](args)
+    with default_tensor_type(dtype=mixed_precision_dtype, device="cuda"):
+        model = models_llama_adapter.__dict__[args.model](args)
 
-    model.to(device)
+    # model.to(device)
+    promote_trainable_params_to_fp32(model)
+    misc.print_param_status(model)
 
     model_without_ddp = model
     print("Model = %s" % str(model_without_ddp))
