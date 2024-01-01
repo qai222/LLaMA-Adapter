@@ -7,8 +7,10 @@ import sys
 import time
 from pathlib import Path
 from typing import Tuple
-
 import fire
+
+import json
+from tqdm import tqdm
 import torch
 from fairscale.nn.model_parallel.initialize import initialize_model_parallel
 
@@ -24,6 +26,9 @@ PROMPT_DICT = {
         "Below is an instruction that describes a task. "
         "Write a response that appropriately completes the request.\n\n"
         "### Instruction:\n{instruction}\n\n### Response:"
+    ),
+    "prompt_ord": (
+        "### Procedure:\n{instruction}\n\n### ORD-JSON:\n"
     ),
 }
 
@@ -49,7 +54,6 @@ def load(
     world_size: int,
     max_seq_len: int,
     max_batch_size: int,
-    quantizer: bool=False,
 ) -> LLaMA:
     start_time = time.time()
     checkpoints = sorted(Path(ckpt_dir).glob("*.pth"))
@@ -63,7 +67,7 @@ def load(
     with open(Path(ckpt_dir) / "params.json", "r") as f:
         params = json.loads(f.read())
 
-    model_args: ModelArgs = ModelArgs(max_seq_len=max_seq_len, max_batch_size=max_batch_size, quantizer=quantizer, **params)
+    model_args: ModelArgs = ModelArgs(max_seq_len=max_seq_len, max_batch_size=max_batch_size, **params)
     model_args.adapter_layer = int(adapter_checkpoint["adapter_query.weight"].shape[0] / model_args.adapter_len)
     tokenizer = Tokenizer(model_path=tokenizer_path)
     model_args.vocab_size = tokenizer.n_words
@@ -84,33 +88,34 @@ def main(
     adapter_path: str,
     temperature: float = 0.1,
     top_p: float = 0.75,
-    max_seq_len: int = 512,
-    max_batch_size: int = 32,
-    quantizer: bool = False,
+    max_seq_len: int = 900,
+    max_batch_size: int = 1,
 ):
     local_rank, world_size = setup_model_parallel()
     if local_rank > 0:
         sys.stdout = open(os.devnull, "w")
 
-    generator = load(ckpt_dir, tokenizer_path, adapter_path, local_rank, world_size, max_seq_len, max_batch_size, quantizer)
-    instructs = [
-        "Tell me about alpacas.",
-        "Tell me about the president of Mexico in 2019.",
-        "Tell me about the king of France in 2019.",
-        "List all Canadian provinces in alphabetical order.",
-        "Write a Python program that prints the first 10 Fibonacci numbers.",
-        "Write a program that prints the numbers from 1 to 100. But for multiples of three print 'Fizz' instead of the number and for the multiples of five print 'Buzz'. For numbers which are multiples of both three and five print 'FizzBuzz'.",  # noqa: E501
-        "Tell me five words that rhyme with 'shock'.",
-        "Translate the sentence 'I have no mouth but I must scream' into Spanish.",
-        "Count up from 1 to 500.",
-    ]
-    prompts = [PROMPT_DICT["prompt_no_input"].format_map({"instruction": x, "input": ""}) for x in instructs]
 
-    results = generator.generate(prompts, max_gen_len=512, temperature=temperature, top_p=top_p)
+    generator = load(ckpt_dir, tokenizer_path, adapter_path, local_rank, world_size, max_seq_len, max_batch_size)
 
-    for result in results:
-        print(result)
-        print("\n==================================\n")
+    with open(
+            "alpaca_finetuning_v1/finetune_20230716/OrdAlpaca_MaxToken900_TrainSize10000_TestSize2000_inputs-conditions-outcomes-workups.json",
+            "r"
+    ) as f:
+        test_data = json.load(f)["test_data"]
+
+    for r in tqdm(test_data):
+        ins = r['instruction']
+        prompt = PROMPT_DICT['prompt_ord'].format_map({"instruction": ins})
+        response = generator.generate([prompt,], max_gen_len=max_seq_len, temperature=temperature, top_p=top_p)[0]
+        print(response)
+        print("### reference")
+        print(r['output'])
+        r['response'] = response
+        print()
+
+    with open("infer.json", "w") as f:
+        json.dump(test_data, f)
 
 
 if __name__ == "__main__":

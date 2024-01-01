@@ -30,16 +30,19 @@ PROMPT_DICT = {
         "Write a response that appropriately completes the request.\n\n"
         "### Instruction:\n{instruction}\n\n### Response:"
     ),
+    "prompt_ord": (
+        "### Procedure:\n{instruction}\n\n### ORD-JSON:\n"
+    ),
 }
 
 
 class InstructionDataset(Dataset):
-    def __init__(self, data_path, model_path, max_words=30, partition="train"):
-        self.ann = json.load(open(data_path))
+    def __init__(self, data_list, model_path, max_words=30, partition="train", valid_size=200):
+        self.ann = data_list
         if partition == "train":
-            self.ann = self.ann
+            self.ann = self.ann[valid_size:]
         else:
-            self.ann = self.ann[:200]
+            self.ann = self.ann[:valid_size]
 
         self.max_words = max_words
         tokenizer = Tokenizer(model_path=model_path + "./tokenizer.model")
@@ -51,14 +54,12 @@ class InstructionDataset(Dataset):
     def __getitem__(self, index):
 
         ann = self.ann[index]
-        if ann.get("input", "") == "":
-            prompt = PROMPT_DICT["prompt_no_input"].format_map(ann)
-        else:
-            prompt = PROMPT_DICT["prompt_input"].format_map(ann)
+        prompt = PROMPT_DICT["prompt_ord"].format_map(ann)
         example = prompt + ann["output"]
         prompt = torch.tensor(self.tokenizer1.encode(prompt, bos=True, eos=False), dtype=torch.int64)
         example = torch.tensor(self.tokenizer1.encode(example, bos=True, eos=True), dtype=torch.int64)
         padding = self.max_words - example.shape[0]
+        assert padding >= 0, "negative padding!"
         if padding > 0:
             example = torch.cat((example, torch.zeros(padding, dtype=torch.int64) - 1))
         elif padding < 0:
@@ -162,11 +163,19 @@ def main(args):
 
     cudnn.benchmark = True
 
+    with open(args.data_path, "r") as f:
+        ord_alpaca_data = json.load(f)
+
+    datalist_train = ord_alpaca_data['train_data']
+
+
     dataset_train = InstructionDataset(
-        data_path=args.data_path, model_path=args.llama_model_path, max_words=args.max_seq_len, partition="train"
+        data_list=datalist_train, model_path=args.llama_model_path, max_words=args.max_seq_len,
+        partition="train", valid_size=int(len(datalist_train) * 0.2)
     )
     dataset_val = InstructionDataset(
-        data_path=args.data_path, model_path=args.llama_model_path, max_words=args.max_seq_len, partition="val"
+        data_list=datalist_train, model_path=args.llama_model_path, max_words=args.max_seq_len,
+        partition="val", valid_size=int(len(datalist_train) * 0.2)
     )
 
     print(dataset_train)
@@ -258,7 +267,7 @@ def main(args):
             model, data_loader_val, optimizer, device, epoch, loss_scaler, log_writer=log_writer, args=args
         )
 
-        if args.output_dir and (epoch % 8 == 0 or epoch + 1 == args.epochs):
+        if args.output_dir and (epoch % 5 == 0 or epoch + 1 == args.epochs):
             misc.save_model(
                 args=args,
                 model=model,
