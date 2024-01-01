@@ -26,17 +26,21 @@ def Llama7B_adapter(args, **kwargs):
     tokenizer = Tokenizer(model_path=llama_model_path + "/tokenizer.model")
 
     model_args.vocab_size = tokenizer.n_words
-    torch.set_default_tensor_type(torch.cuda.HalfTensor)
+    # torch.set_default_tensor_type(torch.cuda.HalfTensor)
     model_llama_adapter = Transformer(model_args)
-    torch.set_default_tensor_type(torch.FloatTensor)
+    # torch.set_default_tensor_type(torch.FloatTensor)
     model_llama_adapter.load_state_dict(checkpoint, strict=False)
 
+    param_count_all, param_count_trainable = 0, 0
     for name, param in model_llama_adapter.named_parameters():
         if "adapter" not in name:
             param.requires_grad = False
         else:
             param.requires_grad = True
             param.data = param.data.float()
+            param_count_trainable += param.numel()
+        param_count_all += param.numel()
+    print(f"Trainable parameter count : {param_count_trainable} (of {param_count_all})")
 
     for name, param in model_llama_adapter.layers[-1 * args.adapter_layer :].named_parameters():
         if "gate" in name or "adapter" in name:
