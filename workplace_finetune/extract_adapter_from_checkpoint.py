@@ -6,11 +6,15 @@ import torch
 
 parser = argparse.ArgumentParser("extract adapter", add_help=False)
 parser.add_argument("--chk_dir", default="./checkpoint", type=str, help="checkpoint folder", )
+parser.add_argument("--iter_id", default=14, type=int, help="iteration index", )
 
-
-def extract_all(checkpoint_dir):
+def extract_all(checkpoint_dir, iter_id):
     for chk in sorted(glob.glob(f"{checkpoint_dir}/checkpoint-*.pth")):
         n = os.path.basename(chk).strip("checkpoint-").strip(".pth")
+        n = int(n)
+        if n != iter_id:
+            print(f"selected iter: {iter_id}, skip: {n}")
+            continue
         print("working on:", chk)
         model = torch.load(chk, map_location="cpu")
         new_model = dict()
@@ -24,4 +28,4 @@ def extract_all(checkpoint_dir):
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    extract_all(args.chk_dir)
+    extract_all(args.chk_dir, args.iter_id)

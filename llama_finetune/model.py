@@ -1,6 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # This software may be used and distributed according to the terms of the GNU General Public License version 3.
 
+import functools
 import math
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -9,6 +10,9 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.nn import Embedding, Linear
+
+default_linear_init = functools.partial(nn.init.kaiming_uniform_, a=math.sqrt(5))
+
 
 @dataclass
 class ModelArgs:
@@ -57,9 +61,9 @@ def reshape_for_broadcast(freqs_cis: torch.Tensor, x: torch.Tensor):
 
 
 def apply_rotary_emb(
-    xq: torch.Tensor,
-    xk: torch.Tensor,
-    freqs_cis: torch.Tensor,
+        xq: torch.Tensor,
+        xk: torch.Tensor,
+        freqs_cis: torch.Tensor,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     xq_ = torch.view_as_complex(xq.float().reshape(*xq.shape[:-1], -1, 2))
     xk_ = torch.view_as_complex(xk.float().reshape(*xk.shape[:-1], -1, 2))
@@ -83,8 +87,10 @@ class Attention(nn.Module):
 
         self.gate = torch.nn.Parameter(torch.zeros(1, self.n_local_heads, 1, 1))
 
+        self.use_bf16 = True
+
     def forward(
-        self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor], adapter=None
+            self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor], adapter=None
     ):
 
         bsz, seqlen, _ = x.shape
@@ -123,7 +129,7 @@ class Attention(nn.Module):
             )
         else:
             scores = F.softmax(scores.float(), dim=-1).type_as(xq)
-        output = torch.matmul(scores, values)  # (bs, n_local_heads, slen, head_dim)
+        output = torch.matmul(scores.to(values.dtype), values)  # (bs, n_local_heads, slen, head_dim)
         output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
 
         return self.wo(output)
@@ -131,10 +137,10 @@ class Attention(nn.Module):
 
 class FeedForward(nn.Module):
     def __init__(
-        self,
-        dim: int,
-        hidden_dim: int,
-        multiple_of: int,
+            self,
+            dim: int,
+            hidden_dim: int,
+            multiple_of: int,
     ):
         super().__init__()
         hidden_dim = int(2 * hidden_dim / 3)
@@ -161,9 +167,8 @@ class TransformerBlock(nn.Module):
         self.ffn_norm = RMSNorm(args.dim, eps=args.norm_eps)
 
     def forward(
-        self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor], adapter=None
+            self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor], adapter=None
     ):
-
         h = x + self.attention.forward(self.attention_norm(x), start_pos, freqs_cis, mask, adapter)
         out = h + self.feed_forward.forward(self.ffn_norm(h))
         return out
@@ -209,8 +214,9 @@ class Transformer(nn.Module):
 
         adapter_index = 0
         adapter = self.adapter_query.weight.reshape(-1, self.adapter_len, 4096).unsqueeze(1)
-        for layer in self.layers[-1 * self.adapter_layer :]:
-            h = layer(h, start_pos, freqs_cis, mask, adapter[adapter_index].half())
+
+        for layer in self.layers[-1 * self.adapter_layer:]:
+            h = layer(h, start_pos, freqs_cis, mask, adapter[adapter_index].to(h.dtype))
             adapter_index = adapter_index + 1
 
         h = self.norm(h)

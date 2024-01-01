@@ -6,7 +6,7 @@ from typing import List
 import torch
 
 from llama_infer.model import Transformer
-from llama_infer.tokenizer import Tokenizer
+from llama_finetune.tokenizer import Tokenizer
 
 
 class LLaMA:

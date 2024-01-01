@@ -14,24 +14,9 @@ import torch
 from fairscale.nn.model_parallel.initialize import initialize_model_parallel
 from tqdm import tqdm
 
-from llama_infer import LLaMA, ModelArgs, Tokenizer, Transformer
+from llama_finetune import Tokenizer
+from llama_infer import LLaMA, ModelArgs, Transformer
 from llama_finetune.util.json_io import json_load
-
-PROMPT_DICT = {
-    "prompt_input": (
-        "Below is an instruction that describes a task, paired with an input that provides further context. "
-        "Write a response that appropriately completes the request.\n\n"
-        "### Instruction:\n{instruction}\n\n### Input:\n{input}\n\n### Response:"
-    ),
-    "prompt_no_input": (
-        "Below is an instruction that describes a task. "
-        "Write a response that appropriately completes the request.\n\n"
-        "### Instruction:\n{instruction}\n\n### Response:"
-    ),
-    "prompt_ord": (
-        "### Procedure:\n{instruction}\n\n### ORD-JSON:\n"
-    ),
-}
 
 
 def setup_model_parallel(use_cpu=False) -> Tuple[int, int]:
@@ -97,39 +82,44 @@ def main(
         ckpt_dir: str,
         tokenizer_path: str,
         adapter_path: str,
-        data_json_path: str,
+        data_path: str,
         temperature: float = 0.0,
-        top_p: float = 0.75,
+        top_p: float = 0.95,
         max_seq_len: int = 900,
         max_batch_size: int = 1,
         use_cpu: bool = False,
+        sample_test_data: int = None,
+        infer_folder: str = "infer",
 ):
     local_rank, world_size = setup_model_parallel(use_cpu=use_cpu)
     if local_rank > 0:
         sys.stdout = open(os.devnull, "w")
 
-    generator = load(ckpt_dir, tokenizer_path, adapter_path, local_rank, world_size, max_seq_len, max_batch_size, use_cpu=use_cpu)
+    generator = load(ckpt_dir, tokenizer_path, adapter_path, local_rank, world_size, max_seq_len, max_batch_size,
+                     use_cpu=use_cpu)
 
-    test_data = json_load(data_json_path)['test_data']
+    test_data = json_load(os.path.join(data_path, "test.json"))
 
-    random.seed(42)
-    test_data = random.sample(test_data, 2000)
+    if sample_test_data:
+        random.seed(42)
+        test_data = random.sample(test_data, sample_test_data)
+
+    prompt_template = json_load(os.path.join(data_path, "params.json"))['prompt_template']
 
     for r in tqdm(test_data):
         ins = r['instruction']
-        prompt = PROMPT_DICT['prompt_ord'].format_map({"instruction": ins})
+        prompt = prompt_template.format_map({"instruction": ins})
         response = generator.generate(
             [prompt, ],
             max_gen_len=max_seq_len, temperature=temperature, top_p=top_p, use_cpu=use_cpu
         )[0]
-        print(response)
-        print("### reference")
-        print(r['output'])
         r['response'] = response
-        print()
-
-    with open("infer.json", "w") as f:
-        json.dump(test_data, f)
+        # print(response)
+        # print("### reference")
+        # print(r['output'])
+        # print()
+        with open(f"{infer_folder}/{r['reaction_id']}.json", "w") as f:
+            json.dump(r, f, indent=2)
 
 
 if __name__ == "__main__":

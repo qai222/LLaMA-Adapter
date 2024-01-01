@@ -161,5 +161,7 @@ cython_debug/
 
 # DS store
 .DS_Store
-/weights/
+
+weights
 .idea
+.uuid

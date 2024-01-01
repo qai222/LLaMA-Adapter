@@ -5,19 +5,20 @@ import json
 import os
 import time
 from pathlib import Path
-import functools
+
 import numpy as np
 import timm.optim.optim_factory as optim_factory
 import torch
 import torch.backends.cudnn as cudnn
+from fairscale.nn.model_parallel import initialize as fs_init
 from torch.utils.data import Dataset
 from torch.utils.tensorboard import SummaryWriter
 
 import llama_finetune.util.misc as misc
 from llama_finetune import Tokenizer, models_llama_adapter
 from llama_finetune.engine_finetuning import train_one_epoch, val_one_epoch
-from llama_finetune.util.misc import NativeScalerWithGradNormCount as NativeScaler
 from llama_finetune.util.json_io import json_load
+from llama_finetune.util.misc import NativeScalerWithGradNormCount as NativeScaler
 from llama_finetune.util.tensor_type import promote_trainable_params_to_fp32, default_tensor_type
 
 
@@ -135,7 +136,7 @@ def get_args_parser():
 
 def main(args):
     misc.init_distributed_mode(args)
-
+    fs_init.initialize_model_parallel(1)
     print("job dir: {}".format(os.path.dirname(os.path.realpath(__file__))))
     print("{}".format(args).replace(", ", ",\n"))
 
@@ -150,7 +151,7 @@ def main(args):
         "fp16": torch.float16,
         "bf16": torch.bfloat16,
         "tf32": torch.float32,
-    }["fp16"]
+    }["bf16"]
 
     cudnn.benchmark = True
 
@@ -160,11 +161,13 @@ def main(args):
     dataset_params = json_load(os.path.join(dataset_path, "params.json"))
 
     dataset_train = InstructionDataset(
-        data_list=datalist_train, prompt_template=dataset_params["prompt_template"], model_path=args.llama_model_path, max_words=args.max_seq_len,
+        data_list=datalist_train, prompt_template=dataset_params["prompt_template"], model_path=args.llama_model_path,
+        max_words=args.max_seq_len,
         partition="train", valid_size=int(len(datalist_train) * 0.1 + len(datalist_test) * 0.1)
     )
     dataset_val = InstructionDataset(
-        data_list=datalist_train, prompt_template=dataset_params["prompt_template"], model_path=args.llama_model_path, max_words=args.max_seq_len,
+        data_list=datalist_train, prompt_template=dataset_params["prompt_template"], model_path=args.llama_model_path,
+        max_words=args.max_seq_len,
         partition="val", valid_size=int(len(datalist_train) * 0.1 + len(datalist_test) * 0.1)
     )
 
@@ -231,6 +234,40 @@ def main(args):
 
     if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True)
+        # import functools
+        # from torch.distributed.fsdp import (
+        #     FullyShardedDataParallel as FSDP,
+        #     MixedPrecision,
+        #     ShardingStrategy,
+        #     CPUOffload
+        # )
+        # from torch.distributed.fsdp.wrap import (
+        #     transformer_auto_wrap_policy,
+        # )
+        # # this does not really improve mem...
+        # model = FSDP(
+        #     model,
+        #     process_group=fs_init.get_data_parallel_group(),
+        #     auto_wrap_policy=functools.partial(
+        #         transformer_auto_wrap_policy,
+        #         transformer_layer_cls=[],
+        #     ),
+        #     limit_all_gathers=True,
+        #     use_orig_params=True,
+        #     sync_module_states=True,
+        #     mixed_precision=MixedPrecision(
+        #         param_dtype=mixed_precision_dtype,
+        #         reduce_dtype=mixed_precision_dtype,
+        #         buffer_dtype=mixed_precision_dtype,
+        #     ),
+        #     sharding_strategy={
+        #         "sdp": ShardingStrategy.SHARD_GRAD_OP,
+        #         "ddp": ShardingStrategy.NO_SHARD,
+        #         "fsdp": ShardingStrategy.FULL_SHARD,
+        #     }["sdp"],
+        #     # device_id=device,
+        #     ignored_parameters=[param for param in model.parameters() if not param.requires_grad]
+        # )
         model_without_ddp = model.module
 
     # following timm: set wd as 0 for bias and norm layers
